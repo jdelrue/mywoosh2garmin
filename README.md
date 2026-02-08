@@ -29,7 +29,6 @@ Grab the latest release for your platform from the [**Releases**](../../releases
 | Platform | File |
 |---|---|
 | Windows | `mywhoosh2garmin-windows-amd64.exe` |
-| Linux | `mywhoosh2garmin-linux-amd64` |
 
 No installation needed — just download and run.
 
@@ -39,10 +38,9 @@ No installation needed — just download and run.
 
 Click **🔍 Find MyWhoosh Dir** — the app will auto-detect the FIT file location:
 
-- **macOS**: `~/Library/Containers/com.whoosh.whooshgame/.../Content/Data`
 - **Windows**: `%LOCALAPPDATA%\Packages\MyWhooshTechnologyService...\...\Content\Data`
 
-If auto-detection doesn't work (e.g., on Linux), a folder picker will open so you can select the directory manually.
+If auto-detection doesn't work, a folder picker will open so you can select the directory manually.
 
 ### 2. Enter Garmin credentials
 
@@ -68,8 +66,7 @@ That's it. Your rides will appear on Garmin Connect within seconds.
 
 - Go 1.24+
 - GCC (for Fyne/CGO)
-- Linux: `libgl-dev`, `xorg-dev`, `libxxf86vm-dev`
-- Windows cross-compile: `mingw-w64`
+- Windows cross-compile from Linux: `mingw-w64`, `libgl-dev`, `xorg-dev`, `libxxf86vm-dev`
 
 ### Build
 
