@@ -2,7 +2,7 @@
 
 A single-executable GUI app that syncs your [MyWhoosh](https://www.mywhoosh.com/) indoor cycling activities to [Garmin Connect](https://connect.garmin.com/) — with full training effect, VO2max, and performance stats support.
 
-![MyWhoosh2Garmin](screenshot.jpg)
+![MyWhoosh2Garmin](images/screenshot.jpg)
 
 ## Why?
 
