@@ -1,0 +1,25 @@
+# Binaries
+mywhoosh2garmin
+mywhoosh2garmin.exe
+dist/
+
+# FIT files and sync markers
+*.fit
+*.fit.synced
+
+# App config/tokens (contain credentials)
+.mywhoosh2garmin/
+.garth/
+
+# Test artifacts
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
