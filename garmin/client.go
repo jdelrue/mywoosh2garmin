@@ -189,7 +189,7 @@ func parseUploadResult(status int, body []byte) error {
 	// Check for failures in the detailed result
 	var result struct {
 		DetailedImportResult struct {
-			Failures []interface{} `json:"failures"`
+			Failures  []interface{} `json:"failures"`
 			Successes []interface{} `json:"successes"`
 		} `json:"detailedImportResult"`
 	}
