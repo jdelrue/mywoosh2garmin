@@ -30,12 +30,12 @@ func createTestFitFile(t *testing.T, path string) {
 
 	// Add records with known values: power=200, HR=150, cadence=90, temp=25
 	for i := 0; i < 10; i++ {
-		rec := mesgdef.NewRecord(nil).
-			SetTimestamp(now.Add(time.Duration(i) * time.Second)).
-			SetPower(200).
-			SetHeartRate(150).
-			SetCadence(90).
-			SetTemperature(25)
+		rec := mesgdef.NewRecord(nil)
+		rec.Timestamp = now.Add(time.Duration(i) * time.Second)
+		rec.Power = 200
+		rec.HeartRate = 150
+		rec.Cadence = 90
+		rec.Temperature = 25
 		activity.Records = append(activity.Records, rec)
 	}
 
@@ -82,7 +82,7 @@ func TestFixFitFile(t *testing.T) {
 	createTestFitFile(t, inputPath)
 
 	// Run the fixer
-	if err := fixFitFile(inputPath, outputPath); err != nil {
+	if err := fixFitFile(inputPath, outputPath, ""); err != nil {
 		t.Fatalf("fixFitFile failed: %v", err)
 	}
 
