@@ -58,6 +58,9 @@ linters:
     - recvcheck
     - revive
     - staticcheck
+    - testpackage
+    - thelper
+    - tparallel
     - unconvert
     - unparam
     - unused
@@ -99,9 +102,6 @@ linters:
     - promlinter
     - tagalign
     - tagliatelle
-    - testpackage
-    - thelper
-    - tparallel
     - varnamelen
     - wrapcheck
     - wsl_v5
