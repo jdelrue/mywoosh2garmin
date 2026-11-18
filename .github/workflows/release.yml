@@ -36,13 +36,13 @@ jobs:
 
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc libgl-dev xorg-dev libxxf86vm-dev
+          sudo apt-get install -y gcc libgl-dev xorg-dev libxxf86vm-dev libwayland-dev libxkbcommon-dev
 
       - name: Install mingw-w64 (for Windows cross-compile)
         if: matrix.goos == 'windows'
