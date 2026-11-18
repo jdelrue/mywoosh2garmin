@@ -1,5 +1,8 @@
 # MyWhoosh2Garmin
 
+> [!NOTE]
+> This is a fork of [jdelrue/mywoosh2garmin](https://github.com/jdelrue/mywoosh2garmin) that adds macOS (Apple Silicon) support.
+
 A single-executable GUI app that syncs your [MyWhoosh](https://www.mywhoosh.com/) indoor cycling activities to [Garmin Connect](https://connect.garmin.com/) — with full training effect, VO2max, and performance stats support.
 
 No need to run this on the same PC as MyWhoosh — the app downloads activities directly from your MyWhoosh account.
