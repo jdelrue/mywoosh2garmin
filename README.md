@@ -7,6 +7,7 @@ A single-executable GUI app that syncs your [MyWhoosh](https://www.mywhoosh.com/
 
 No need to run this on the same PC as MyWhoosh — the app downloads activities directly from your MyWhoosh account.
 
+![MyWhoosh2Garmin screenshot](images/screenshot.jpg)
 
 ## Why?
 
@@ -22,7 +23,7 @@ MyWhoosh2Garmin fixes all of this automatically:
 |---|---|
 | Missing avg power / HR / cadence | Calculated from ride records |
 | Fake temperature data | Stripped from all records |
-| MyWhoosh device identity | Spoofed to Garmin Fenix 6S Pro |
+| MyWhoosh device identity | Spoofed to a Garmin device (Fenix 6S Pro or Edge 840) |
 
 The result: your indoor rides show up on Garmin Connect just like a native Garmin recording, complete with **Training Effect**, **VO2max updates**, **Training Load**, and **Training Status**.
 
@@ -76,7 +77,7 @@ For each activity, the app will:
 
 ### Device and serial number
 
-Choose which Garmin device the uploads appear to come from with the **Upload as device** dropdown.
+Choose which Garmin device the uploads appear to come from with the **Upload as device** dropdown: **Fenix 6S Pro** (default) or **Edge 840**. The choice is remembered between runs.
 
 On first start the app generates a random serial number and saves it to `~/.mywhoosh2garmin/config.json`, so all your uploads come from the same device. To use your own device's serial instead, change it there:
 
@@ -86,29 +87,65 @@ On first start the app generates a random serial number and saves it to `~/.mywh
 }
 ```
 
+### Local data
+
+Everything the app stores lives in `~/.mywhoosh2garmin/`:
+
+| File | Contents |
+|---|---|
+| `config.json` | MyWhoosh and Garmin emails, selected device, serial number |
+| `mywhoosh_token.json` | Cached MyWhoosh session token |
+| `oauth1_token.json`, `oauth2_token.json` | Cached Garmin Connect tokens |
+| `synced.json` | IDs of activities already uploaded to Garmin |
+
+Passwords are never stored. Delete this folder to reset the app.
+
 ## Building from Source
 
 ### Prerequisites
 
-- Go 1.24+
-- GCC (for Fyne/CGO)
-- Windows cross-compile from Linux: `mingw-w64`, `libgl-dev`, `xorg-dev`, `libxxf86vm-dev`
+- Go 1.27.4+
+- A C compiler, because Fyne needs CGO:
+  - Linux: `gcc`, `libgl-dev`, `xorg-dev`, `libxxf86vm-dev`
+  - Windows cross-compile from Linux: also `mingw-w64`
+  - macOS: Xcode Command Line Tools (`xcode-select --install`)
 
 ### Build
 
-```bash
-# Linux
-go build -o mywhoosh2garmin .
+For your current platform:
 
-# Linux + Windows on Linux (requires mingw-w64), macOS arm64 on macOS
-./build.sh
-# Output in dist/
+```bash
+go build -o mywhoosh2garmin .
 ```
 
-### Run tests
+Release binaries:
+
+```bash
+./build.sh
+```
+
+`build.sh` clears `dist/` and builds stripped binaries into it, depending on the host OS:
+
+| Host | Output |
+|---|---|
+| Linux | `mywhoosh2garmin-linux-amd64`, `mywhoosh2garmin-windows-amd64.exe` |
+| macOS | `mywhoosh2garmin-darwin-arm64` |
+
+macOS binaries can only be built on macOS.
+
+### Run tests and linter
 
 ```bash
 go test ./...
+golangci-lint run
+```
+
+### Inspect a FIT file
+
+`cmd/inspect` dumps the `file_id` and `device_info` messages of a FIT file, which is handy for checking the device spoofing:
+
+```bash
+go run ./cmd/inspect activity.fit
 ```
 
 ## How It Works
@@ -125,7 +162,7 @@ go test ./...
   │  Decode FIT (V2)    │
   │  Fix session avgs   │
   │  Strip temperature  │
-  │  Spoof → Fenix 6S   │
+  │  Spoof Garmin device│
   │  Encode FIT (V2)    │
   └─────────┬───────────┘
             │
