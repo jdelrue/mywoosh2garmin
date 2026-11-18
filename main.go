@@ -27,6 +27,9 @@ import (
 type appConfig struct {
 	MyWhooshEmail string `json:"mywhoosh_email"`
 	GarminEmail   string `json:"garmin_email"`
+	Device        string `json:"device"`
+	// Serial is the spoofed device serial number, random per install unless set by the user.
+	Serial uint32 `json:"serial,omitempty"`
 }
 
 func appConfigDir() string {
@@ -97,6 +100,10 @@ func main() {
 	w.Resize(fyne.NewSize(720, 700))
 
 	cfg := loadAppConfig()
+	if cfg.Serial == 0 {
+		cfg.Serial = randomSerial()
+		saveAppConfig(cfg)
+	}
 	tracker := newSyncedTracker(appConfigDir())
 
 	// --- MyWhoosh state ---
@@ -159,6 +166,19 @@ func main() {
 	garminPasswordEntry := widget.NewPasswordEntry()
 	garminPasswordEntry.SetPlaceHolder("Garmin password (only needed first time)")
 
+	// --- Device to upload as ---
+	deviceSelect := widget.NewSelect(spoofDeviceNames(), func(name string) {
+		cfg.Device = name
+		saveAppConfig(cfg)
+	})
+	deviceSelect.SetSelected(findSpoofDevice(cfg.Device).Name)
+
+	selectedDevice := func() spoofDevice {
+		device := findSpoofDevice(deviceSelect.Selected)
+		device.Serial = cfg.Serial
+		return device
+	}
+
 	// --- Activity list container ---
 	activityListBox := container.NewVBox()
 	activityScroll := container.NewVScroll(activityListBox)
@@ -199,6 +219,7 @@ func main() {
 	uploadActivity := func(activity mywhoosh.Activity, btn *widget.Button) {
 		btn.Disable()
 		btn.SetText("⏳")
+		device := selectedDevice()
 
 		go func() {
 			defer func() {
@@ -244,7 +265,7 @@ func main() {
 
 			// 3. Fix the FIT file
 			appendLog("  🔧 Fixing FIT file…")
-			if err := fixFitFile(inputPath, outputPath); err != nil {
+			if err := fixFitFile(inputPath, outputPath, device); err != nil {
 				appendLog("  ❌ Fix failed: " + err.Error())
 				return
 			}
@@ -435,6 +456,7 @@ func main() {
 		}
 		uploadingAll = true
 		uploadAllBtn.Disable()
+		device := selectedDevice()
 
 		go func() {
 			defer func() {
@@ -489,7 +511,7 @@ func main() {
 				}
 
 				// Fix
-				if err := fixFitFile(inputPath, outputPath); err != nil {
+				if err := fixFitFile(inputPath, outputPath, device); err != nil {
 					appendLog("  ❌ Fix failed: " + err.Error())
 					os.Remove(inputPath)
 					failed++
@@ -570,6 +592,7 @@ func main() {
 		widget.NewSeparator(),
 		credentialsRow,
 		widget.NewSeparator(),
+		container.NewBorder(nil, nil, widget.NewLabel("Upload as device"), nil, deviceSelect),
 		fetchBtn,
 		widget.NewSeparator(),
 		activitiesHeader,

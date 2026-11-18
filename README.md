@@ -71,6 +71,18 @@ For each activity, the app will:
 3. Upload to Garmin Connect
 4. Mark the activity as synced so it won't be uploaded again
 
+### Device and serial number
+
+Choose which Garmin device the uploads appear to come from with the **Upload as device** dropdown.
+
+On first start the app generates a random serial number and saves it to `~/.mywhoosh2garmin/config.json`, so all your uploads come from the same device. To use your own device's serial instead, change it there:
+
+```json
+{
+  "serial": 1234567890
+}
+```
+
 ## Building from Source
 
 ### Prerequisites

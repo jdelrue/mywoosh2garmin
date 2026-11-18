@@ -82,7 +82,9 @@ func TestFixFitFile(t *testing.T) {
 	createTestFitFile(t, inputPath)
 
 	// Run the fixer
-	if err := fixFitFile(inputPath, outputPath); err != nil {
+	device := findSpoofDevice("Edge 840")
+	device.Serial = randomSerial()
+	if err := fixFitFile(inputPath, outputPath, device); err != nil {
 		t.Fatalf("fixFitFile failed: %v", err)
 	}
 
@@ -116,6 +118,11 @@ func TestFixFitFile(t *testing.T) {
 		if rec.Temperature != sint8Invalid {
 			t.Errorf("record %d: temperature not removed (got %d)", i, rec.Temperature)
 		}
+	}
+
+	if result.FileId.Product != device.Product.Uint16() || result.FileId.SerialNumber != device.Serial {
+		t.Errorf("file_id device: got product %d serial %d, want product %d serial %d",
+			result.FileId.Product, result.FileId.SerialNumber, device.Product, device.Serial)
 	}
 
 	// Verify session averages were set

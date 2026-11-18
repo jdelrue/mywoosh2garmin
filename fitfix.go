@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,12 +27,44 @@ const (
 	sint8Invalid  = int8(0x7F)
 )
 
-// Device spoofing constants.
-const (
-	garminManufacturer = typedef.ManufacturerGarmin   // 1
-	fenix6sProduct     = typedef.GarminProductFenix6s // 3288
-	fakeSerialNumber   = uint32(3420897194)
-)
+const garminManufacturer = typedef.ManufacturerGarmin // 1
+
+// spoofDevice is a Garmin device that uploaded activities pretend to be recorded on.
+type spoofDevice struct {
+	Name    string
+	Product typedef.GarminProduct
+	Serial  uint32
+}
+
+// spoofDevices lists the devices the user can choose from; the first is the default.
+// Serial is left empty here and filled in from the app config.
+var spoofDevices = []spoofDevice{
+	{Name: "Fenix 6S Pro", Product: typedef.GarminProductFenix6s}, // 3288
+	{Name: "Edge 840", Product: typedef.GarminProductEdge840},     // 4062
+}
+
+// randomSerial returns a serial number that is neither 0 nor the FIT invalid value 0xFFFFFFFF.
+func randomSerial() uint32 {
+	return rand.Uint32N(math.MaxUint32-1) + 1
+}
+
+func spoofDeviceNames() []string {
+	names := make([]string, len(spoofDevices))
+	for i, d := range spoofDevices {
+		names[i] = d.Name
+	}
+	return names
+}
+
+// findSpoofDevice returns the device with the given name, or the default one.
+func findSpoofDevice(name string) spoofDevice {
+	for _, d := range spoofDevices {
+		if d.Name == name {
+			return d
+		}
+	}
+	return spoofDevices[0]
+}
 
 // logFn can be overridden to redirect log output (e.g., to a GUI).
 var logFn = func(format string, args ...interface{}) {
@@ -133,7 +167,7 @@ func generateOutputFilename(inputPath string) string {
 
 // fixFitFile reads a MyWhoosh FIT activity, fixes missing session averages,
 // strips temperature from records, spoofs the device, and writes the result.
-func fixFitFile(inputPath, outputPath string) error {
+func fixFitFile(inputPath, outputPath string, device spoofDevice) error {
 	f, err := os.Open(inputPath)
 	if err != nil {
 		return err
@@ -195,7 +229,7 @@ func fixFitFile(inputPath, outputPath string) error {
 	}
 
 	// Spoof device
-	spoofDevice(activity)
+	applySpoofDevice(activity, device)
 
 	// Encode
 	fit := activity.ToFIT(nil)
@@ -232,18 +266,18 @@ func avgU8(vals []uint8) uint8 {
 // Device spoofing
 // ---------------------------------------------------------------------------
 
-func spoofDevice(activity *filedef.Activity) {
+func applySpoofDevice(activity *filedef.Activity, device spoofDevice) {
 	activity.FileId.Manufacturer = garminManufacturer
-	activity.FileId.Product = fenix6sProduct.Uint16()
-	activity.FileId.SerialNumber = fakeSerialNumber
+	activity.FileId.Product = device.Product.Uint16()
+	activity.FileId.SerialNumber = device.Serial
 
 	for _, di := range activity.DeviceInfos {
 		di.Manufacturer = garminManufacturer
-		di.Product = fenix6sProduct.Uint16()
-		di.SerialNumber = fakeSerialNumber
+		di.Product = device.Product.Uint16()
+		di.SerialNumber = device.Serial
 	}
 
-	logFn("  → device spoofed: Garmin Fenix 6S Pro (product %d)\n", fenix6sProduct)
+	logFn("  → device spoofed: Garmin %s (product %d)\n", device.Name, device.Product)
 }
 
 // ---------------------------------------------------------------------------
