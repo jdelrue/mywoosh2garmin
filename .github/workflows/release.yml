@@ -23,6 +23,11 @@ jobs:
             goarch: amd64
             cc: x86_64-w64-mingw32-gcc
             artifact: mywhoosh2garmin-windows-amd64.exe
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            cc: clang
+            artifact: mywhoosh2garmin-darwin-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -34,6 +39,7 @@ jobs:
           go-version: '1.24'
 
       - name: Install Linux build deps
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgl-dev xorg-dev libxxf86vm-dev
@@ -78,3 +84,4 @@ jobs:
           files: |
             artifacts/mywhoosh2garmin-linux-amd64/mywhoosh2garmin-linux-amd64
             artifacts/mywhoosh2garmin-windows-amd64.exe/mywhoosh2garmin-windows-amd64.exe
+            artifacts/mywhoosh2garmin-darwin-arm64/mywhoosh2garmin-darwin-arm64

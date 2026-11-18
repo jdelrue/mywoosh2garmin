@@ -31,6 +31,7 @@ Grab the latest release for your platform from the [**Releases**](../../releases
 |---|---|
 | Windows | `mywhoosh2garmin-windows-amd64.exe` |
 | Linux | `mywhoosh2garmin-linux-amd64` |
+| macOS (Apple Silicon) | `mywhoosh2garmin-darwin-arm64` |
 
 No installation needed — just download and run.
 
@@ -84,7 +85,7 @@ For each activity, the app will:
 # Linux
 go build -o mywhoosh2garmin .
 
-# Both platforms (requires mingw-w64)
+# Linux + Windows on Linux (requires mingw-w64), macOS arm64 on macOS
 ./build.sh
 # Output in dist/
 ```
