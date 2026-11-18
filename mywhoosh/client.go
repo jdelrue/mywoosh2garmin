@@ -19,12 +19,12 @@ const (
 )
 
 // DebugFn can be set to redirect debug output (e.g., to a GUI log).
-var debugFn = func(format string, args ...interface{}) {
+var debugFn = func(format string, args ...any) {
 	fmt.Printf(format+"\n", args...)
 }
 
 // SetDebugFn sets the debug log function.
-func SetDebugFn(fn func(string, ...interface{})) {
+func SetDebugFn(fn func(string, ...any)) {
 	debugFn = fn
 }
 
@@ -159,7 +159,7 @@ func (c *Client) saveToken() {
 
 // Login authenticates with MyWhoosh using email and password.
 func (c *Client) Login(email, password string) error {
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"Username":      email,
 		"Password":      password,
 		"Platform":      "Android",

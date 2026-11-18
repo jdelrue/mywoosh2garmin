@@ -67,7 +67,7 @@ func findSpoofDevice(name string) spoofDevice {
 }
 
 // logFn can be overridden to redirect log output (e.g., to a GUI).
-var logFn = func(format string, args ...interface{}) {
+var logFn = func(format string, args ...any) {
 	fmt.Printf(format, args...)
 }
 

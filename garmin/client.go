@@ -189,8 +189,8 @@ func parseUploadResult(status int, body []byte) error {
 	// Check for failures in the detailed result
 	var result struct {
 		DetailedImportResult struct {
-			Failures []interface{} `json:"failures"`
-			Successes []interface{} `json:"successes"`
+			Failures  []any `json:"failures"`
+			Successes []any `json:"successes"`
 		} `json:"detailedImportResult"`
 	}
 	if err := json.Unmarshal(body, &result); err == nil {

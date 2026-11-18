@@ -137,12 +137,12 @@ func main() {
 	}
 
 	// Wire FIT processing logs into the GUI
-	logFn = func(format string, args ...interface{}) {
+	logFn = func(format string, args ...any) {
 		appendLog(fmt.Sprintf(format, args...))
 	}
 
 	// Wire MyWhoosh debug logs into the GUI
-	mywhoosh.SetDebugFn(func(format string, args ...interface{}) {
+	mywhoosh.SetDebugFn(func(format string, args ...any) {
 		appendLog(fmt.Sprintf(format, args...))
 	})
 

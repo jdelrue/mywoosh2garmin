@@ -29,7 +29,7 @@ func createTestFitFile(t *testing.T, path string) {
 		SetProduct(0)
 
 	// Add records with known values: power=200, HR=150, cadence=90, temp=25
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		rec := mesgdef.NewRecord(nil).
 			SetTimestamp(now.Add(time.Duration(i) * time.Second)).
 			SetPower(200).
