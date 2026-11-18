@@ -32,14 +32,16 @@ func main() {
 	activity, ok := lis.File().(*filedef.Activity)
 	if !ok {
 		fmt.Printf("Not an activity file: %T\n", lis.File())
+
 		return
 	}
 
+	fileID := activity.FileId
 	fmt.Println("=== file_id ===")
-	fmt.Printf("  Manufacturer:  %d (%s)\n", activity.FileId.Manufacturer, activity.FileId.Manufacturer)
-	fmt.Printf("  Product:       %d\n", activity.FileId.Product)
-	fmt.Printf("  SerialNumber:  %d\n", activity.FileId.SerialNumber)
-	fmt.Printf("  TimeCreated:   %v\n", activity.FileId.TimeCreated)
+	fmt.Printf("  Manufacturer:  %d (%s)\n", fileID.Manufacturer, fileID.Manufacturer)
+	fmt.Printf("  Product:       %d\n", fileID.Product)
+	fmt.Printf("  SerialNumber:  %d\n", fileID.SerialNumber)
+	fmt.Printf("  TimeCreated:   %v\n", fileID.TimeCreated)
 
 	fmt.Printf("\n=== device_info (%d messages) ===\n", len(activity.DeviceInfos))
 	for i, di := range activity.DeviceInfos {

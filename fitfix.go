@@ -5,13 +5,6 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
-	"path/filepath"
-	"regexp"
-	"runtime"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/muktihari/fit/decoder"
 	"github.com/muktihari/fit/encoder"
@@ -53,6 +46,7 @@ func spoofDeviceNames() []string {
 	for i, d := range spoofDevices {
 		names[i] = d.Name
 	}
+
 	return names
 }
 
@@ -63,6 +57,7 @@ func findSpoofDevice(name string) spoofDevice {
 			return d
 		}
 	}
+
 	return spoofDevices[0]
 }
 
@@ -70,100 +65,6 @@ func findSpoofDevice(name string) spoofDevice {
 var logFn = func(format string, args ...any) {
 	fmt.Printf(format, args...)
 }
-
-// ---------------------------------------------------------------------------
-// MyWhoosh directory detection
-// ---------------------------------------------------------------------------
-
-func findMyWhooshDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-
-	switch runtime.GOOS {
-	case "darwin":
-		p := filepath.Join(home,
-			"Library", "Containers", "com.whoosh.whooshgame",
-			"Data", "Library", "Application Support",
-			"Epic", "MyWhoosh", "Content", "Data")
-		if isDir(p) {
-			return p, nil
-		}
-		return "", fmt.Errorf("not found: %s", p)
-
-	case "windows":
-		base := filepath.Join(home, "AppData", "Local", "Packages")
-		entries, err := os.ReadDir(base)
-		if err != nil {
-			return "", err
-		}
-		for _, e := range entries {
-			if e.IsDir() && strings.HasPrefix(e.Name(), "MyWhooshTechnologyService.") {
-				p := filepath.Join(base, e.Name(),
-					"LocalCache", "Local", "MyWhoosh", "Content", "Data")
-				if isDir(p) {
-					return p, nil
-				}
-			}
-		}
-		return "", fmt.Errorf("MyWhoosh not found in %s", base)
-
-	default:
-		return "", fmt.Errorf("no auto-detection for %s — use the directory picker", runtime.GOOS)
-	}
-}
-
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
-
-// ---------------------------------------------------------------------------
-// FIT file discovery
-// ---------------------------------------------------------------------------
-
-// findMostRecentFitFile returns the MyNewActivity-*.fit file with the highest
-// version number (e.g. MyNewActivity-3.8.5.fit > MyNewActivity-3.7.0.fit).
-func findMostRecentFitFile(dir string) (string, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "MyNewActivity-*.fit"))
-	if err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no MyNewActivity-*.fit files in %s", dir)
-	}
-
-	re := regexp.MustCompile(`\d+`)
-	sort.Slice(matches, func(i, j int) bool {
-		vi := re.FindAllString(filepath.Base(matches[i]), -1)
-		vj := re.FindAllString(filepath.Base(matches[j]), -1)
-		return cmpVersionParts(vi, vj) > 0
-	})
-
-	return matches[0], nil
-}
-
-func cmpVersionParts(a, b []string) int {
-	for i := 0; i < len(a) && i < len(b); i++ {
-		ai, _ := strconv.Atoi(a[i])
-		bi, _ := strconv.Atoi(b[i])
-		if ai != bi {
-			return ai - bi
-		}
-	}
-	return len(a) - len(b)
-}
-
-func generateOutputFilename(inputPath string) string {
-	name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	ts := time.Now().Format("2006-01-02_150405")
-	return fmt.Sprintf("%s_%s.fit", name, ts)
-}
-
-// ---------------------------------------------------------------------------
-// FIT file processing
-// ---------------------------------------------------------------------------
 
 // fixFitFile reads a MyWhoosh FIT activity, fixes missing session averages,
 // strips temperature from records, spoofs the device, and writes the result.
@@ -238,9 +139,14 @@ func fixFitFile(inputPath, outputPath string, device spoofDevice) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	return encoder.New(out, encoder.WithProtocolVersion(proto.V2)).Encode(&fit)
+	if err := encoder.New(out, encoder.WithProtocolVersion(proto.V2)).Encode(&fit); err != nil {
+		_ = out.Close()
+
+		return err
+	}
+
+	return out.Close()
 }
 
 func shouldFixU16(v uint16) bool { return v == uint16Invalid || v == 0 }
@@ -251,6 +157,7 @@ func avgU16(vals []uint16) uint16 {
 	for _, v := range vals {
 		sum += uint64(v)
 	}
+
 	return uint16(sum / uint64(len(vals)))
 }
 
@@ -259,13 +166,12 @@ func avgU8(vals []uint8) uint8 {
 	for _, v := range vals {
 		sum += uint64(v)
 	}
+
 	return uint8(sum / uint64(len(vals)))
 }
 
-// ---------------------------------------------------------------------------
-// Device spoofing
-// ---------------------------------------------------------------------------
-
+// applySpoofDevice makes the activity look as if it was recorded on the given Garmin device,
+// so Garmin Connect computes Training Effect and VO2max for it.
 func applySpoofDevice(activity *filedef.Activity, device spoofDevice) {
 	activity.FileId.Manufacturer = garminManufacturer
 	activity.FileId.Product = device.Product.Uint16()
@@ -278,54 +184,4 @@ func applySpoofDevice(activity *filedef.Activity, device spoofDevice) {
 	}
 
 	logFn("  → device spoofed: Garmin %s (product %d)\n", device.Name, device.Product)
-}
-
-// ---------------------------------------------------------------------------
-// Sync helpers
-// ---------------------------------------------------------------------------
-
-// findUnsyncedFitFiles returns *.fit files modified in the last 30 days
-// that don't have a .synced marker file next to them.
-func findUnsyncedFitFiles(dir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "*.fit"))
-	if err != nil {
-		return nil, err
-	}
-
-	cutoff := time.Now().AddDate(0, 0, -30)
-	var result []string
-
-	for _, path := range matches {
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		if info.ModTime().Before(cutoff) {
-			continue
-		}
-		if isSynced(path) {
-			continue
-		}
-		result = append(result, path)
-	}
-
-	// Sort oldest first so we upload in chronological order
-	sort.Slice(result, func(i, j int) bool {
-		ii, _ := os.Stat(result[i])
-		jj, _ := os.Stat(result[j])
-		return ii.ModTime().Before(jj.ModTime())
-	})
-
-	return result, nil
-}
-
-// isSynced checks if a .synced marker file exists for the given FIT file.
-func isSynced(fitPath string) bool {
-	_, err := os.Stat(fitPath + ".synced")
-	return err == nil
-}
-
-// markSynced creates a .synced marker file next to the FIT file.
-func markSynced(fitPath string) error {
-	return os.WriteFile(fitPath+".synced", []byte(time.Now().Format(time.RFC3339)), 0o644)
 }

@@ -1,8 +1,10 @@
 package garmin
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,6 +42,7 @@ type ssoSession struct {
 
 func newSSOSession() *ssoSession {
 	jar, _ := cookiejar.New(nil)
+
 	return &ssoSession{
 		client: &http.Client{
 			Jar:     jar,
@@ -48,8 +51,8 @@ func newSSOSession() *ssoSession {
 	}
 }
 
-func (s *ssoSession) get(reqURL string, useReferer bool) (string, error) {
-	req, err := http.NewRequest("GET", reqURL, nil)
+func (s *ssoSession) get(ctx context.Context, reqURL string, useReferer bool) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return "", err
 	}
@@ -71,11 +74,12 @@ func (s *ssoSession) get(reqURL string, useReferer bool) (string, error) {
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode,
 			string(body[:min(300, len(body))]))
 	}
+
 	return string(body), nil
 }
 
-func (s *ssoSession) post(reqURL string, form url.Values, useReferer bool) (string, error) {
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(form.Encode()))
+func (s *ssoSession) post(ctx context.Context, reqURL string, form url.Values, useReferer bool) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -98,17 +102,16 @@ func (s *ssoSession) post(reqURL string, form url.Values, useReferer bool) (stri
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode,
 			string(body[:min(300, len(body))]))
 	}
+
 	return string(body), nil
 }
 
 // Login performs the full Garmin SSO login flow and returns OAuth tokens.
-func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
-	if domain == "" {
-		domain = "garmin.com"
-	}
+func Login(ctx context.Context, email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
+	domain = cmp.Or(domain, "garmin.com")
 
 	// 1. Fetch OAuth consumer credentials from Garmin's S3 bucket
-	consumer, err := fetchConsumer()
+	consumer, err := fetchConsumer(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetch consumer: %w", err)
 	}
@@ -116,7 +119,7 @@ func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
 	// 2. Start SSO session with cookie jar
 	sess := newSSOSession()
 
-	ssoBase := fmt.Sprintf("https://sso.%s", domain)
+	ssoBase := "https://sso." + domain
 	ssoEmbed := ssoBase + "/sso/embed"
 
 	embedParams := url.Values{
@@ -135,21 +138,21 @@ func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
 	}
 
 	// 3. GET /sso/embed — set cookies
-	_, err = sess.get(ssoEmbed+"?"+embedParams.Encode(), false)
+	_, err = sess.get(ctx, ssoEmbed+"?"+embedParams.Encode(), false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sso embed: %w", err)
 	}
 
 	// 4. GET /sso/signin — extract CSRF token
 	signinURL := ssoBase + "/sso/signin?" + signinParams.Encode()
-	body, err := sess.get(signinURL, true)
+	body, err := sess.get(ctx, signinURL, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sso signin page: %w", err)
 	}
 
 	csrf := csrfRe.FindStringSubmatch(body)
 	if csrf == nil {
-		return nil, nil, fmt.Errorf("CSRF token not found in signin page")
+		return nil, nil, errors.New("CSRF token not found in signin page")
 	}
 
 	// 5. POST /sso/signin — submit credentials
@@ -161,6 +164,7 @@ func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
 	}
 
 	body, err = sess.post(
+		ctx,
 		ssoBase+"/sso/signin?"+signinParams.Encode(),
 		formData,
 		true,
@@ -172,14 +176,13 @@ func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
 	// 6. Check result title
 	titleMatch := titleRe.FindStringSubmatch(body)
 	if titleMatch == nil {
-		return nil, nil, fmt.Errorf("no title in response — login may have failed")
+		return nil, nil, errors.New("no title in response — login may have failed")
 	}
 
 	title := titleMatch[1]
 	if strings.Contains(title, "MFA") {
-		return nil, nil, fmt.Errorf(
-			"MFA is required but not yet supported in this tool.\n" +
-				"  Disable MFA temporarily, or use the Python version")
+		return nil, nil, errors.New("MFA is required but not yet supported in this tool.\n" +
+			"  Disable MFA temporarily, or use the Python version")
 	}
 	if title != "Success" {
 		return nil, nil, fmt.Errorf("login failed: %q (check credentials)", title)
@@ -188,18 +191,18 @@ func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
 	// 7. Parse ticket from response
 	ticketMatch := ticketRe.FindStringSubmatch(body)
 	if ticketMatch == nil {
-		return nil, nil, fmt.Errorf("ticket not found in response")
+		return nil, nil, errors.New("ticket not found in response")
 	}
 	ticket := ticketMatch[1]
 
 	// 8. Get OAuth1 token via OAuth1-signed request
-	oauth1Token, err := getOAuth1Token(consumer, ticket, domain)
+	oauth1Token, err := getOAuth1Token(ctx, consumer, ticket, domain)
 	if err != nil {
 		return nil, nil, fmt.Errorf("oauth1 token: %w", err)
 	}
 
 	// 9. Exchange OAuth1 for OAuth2 Bearer token
-	oauth2Token, err := exchangeOAuth2(consumer, oauth1Token, domain)
+	oauth2Token, err := exchangeOAuth2(ctx, consumer, oauth1Token, domain)
 	if err != nil {
 		return nil, nil, fmt.Errorf("oauth2 exchange: %w", err)
 	}
@@ -208,53 +211,54 @@ func Login(email, password, domain string) (*OAuth1Token, *OAuth2Token, error) {
 }
 
 // ExchangeForOAuth2 refreshes the OAuth2 token using an existing OAuth1 token.
-func ExchangeForOAuth2(oauth1Token *OAuth1Token) (*OAuth2Token, error) {
-	consumer, err := fetchConsumer()
+func ExchangeForOAuth2(ctx context.Context, oauth1Token *OAuth1Token) (*OAuth2Token, error) {
+	consumer, err := fetchConsumer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch consumer: %w", err)
 	}
-	domain := oauth1Token.Domain
-	if domain == "" {
-		domain = "garmin.com"
-	}
-	return exchangeOAuth2(consumer, oauth1Token, domain)
+	domain := cmp.Or(oauth1Token.Domain, "garmin.com")
+
+	return exchangeOAuth2(ctx, consumer, oauth1Token, domain)
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-func fetchConsumer() (*oauthConsumer, error) {
-	resp, err := http.Get(oauthConsumerURL)
+// fetchConsumer downloads the OAuth consumer key and secret used by the Garmin Connect mobile app.
+func fetchConsumer(ctx context.Context) (*oauthConsumer, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, oauthConsumerURL, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("consumer fetch HTTP %d", resp.StatusCode)
 	}
 	var c oauthConsumer
 	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
 		return nil, err
 	}
+
 	return &c, nil
 }
 
-func getOAuth1Token(consumer *oauthConsumer, ticket, domain string) (*OAuth1Token, error) {
+// getOAuth1Token exchanges an SSO login ticket for an OAuth1 token.
+func getOAuth1Token(ctx context.Context, consumer *oauthConsumer, ticket, domain string) (*OAuth1Token, error) {
 	// OAuth1 signed with consumer-only (empty token)
 	config := oauth1.NewConfig(consumer.ConsumerKey, consumer.ConsumerSecret)
 	token := oauth1.NewToken("", "")
-	httpClient := config.Client(context.Background(), token)
+	httpClient := config.Client(ctx, token)
 	httpClient.Timeout = 30 * time.Second
 
-	apiBase := fmt.Sprintf("https://connectapi.%s", domain)
+	apiBase := "https://connectapi." + domain
 	loginURL := fmt.Sprintf("https://sso.%s/sso/embed", domain)
 	reqURL := fmt.Sprintf(
 		"%s/oauth-service/oauth/preauthorized?ticket=%s&login-url=%s&accepts-mfa-tokens=true",
 		apiBase, url.QueryEscape(ticket), url.QueryEscape(loginURL),
 	)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +274,7 @@ func getOAuth1Token(consumer *oauthConsumer, ticket, domain string) (*OAuth1Toke
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("preauthorized HTTP %d: %s", resp.StatusCode,
 			string(body[:min(300, len(body))]))
 	}
@@ -289,22 +293,28 @@ func getOAuth1Token(consumer *oauthConsumer, ticket, domain string) (*OAuth1Toke
 	}, nil
 }
 
-func exchangeOAuth2(consumer *oauthConsumer, oauth1Token *OAuth1Token, domain string) (*OAuth2Token, error) {
+// exchangeOAuth2 exchanges an OAuth1 token for a short-lived OAuth2 Bearer token.
+func exchangeOAuth2(
+	ctx context.Context,
+	consumer *oauthConsumer,
+	oauth1Token *OAuth1Token,
+	domain string,
+) (*OAuth2Token, error) {
 	// OAuth1 signed with consumer + token
 	config := oauth1.NewConfig(consumer.ConsumerKey, consumer.ConsumerSecret)
 	token := oauth1.NewToken(oauth1Token.OAuthToken, oauth1Token.OAuthTokenSecret)
-	httpClient := config.Client(context.Background(), token)
+	httpClient := config.Client(ctx, token)
 	httpClient.Timeout = 30 * time.Second
 
-	apiBase := fmt.Sprintf("https://connectapi.%s", domain)
-	reqURL := fmt.Sprintf("%s/oauth-service/oauth/exchange/user/2.0", apiBase)
+	apiBase := "https://connectapi." + domain
+	reqURL := apiBase + "/oauth-service/oauth/exchange/user/2.0"
 
 	var bodyContent string
 	if oauth1Token.MFAToken != "" {
 		bodyContent = "mfa_token=" + url.QueryEscape(oauth1Token.MFAToken)
 	}
 
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(bodyContent))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(bodyContent))
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +331,7 @@ func exchangeOAuth2(consumer *oauthConsumer, oauth1Token *OAuth1Token, domain st
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("exchange HTTP %d: %s", resp.StatusCode,
 			string(respBody[:min(300, len(respBody))]))
 	}
@@ -340,7 +350,8 @@ func exchangeOAuth2(consumer *oauthConsumer, oauth1Token *OAuth1Token, domain st
 		return nil, fmt.Errorf("parse oauth2: %w", err)
 	}
 
-	now := time.Now().Unix()
+	nowSec := time.Now().Unix()
+
 	return &OAuth2Token{
 		Scope:                 raw.Scope,
 		Jti:                   raw.Jti,
@@ -348,8 +359,8 @@ func exchangeOAuth2(consumer *oauthConsumer, oauth1Token *OAuth1Token, domain st
 		AccessToken:           raw.AccessToken,
 		RefreshToken:          raw.RefreshToken,
 		ExpiresIn:             raw.ExpiresIn,
-		ExpiresAt:             now + raw.ExpiresIn,
+		ExpiresAt:             nowSec + raw.ExpiresIn,
 		RefreshTokenExpiresIn: raw.RefreshTokenExpiresIn,
-		RefreshTokenExpiresAt: now + raw.RefreshTokenExpiresIn,
+		RefreshTokenExpiresAt: nowSec + raw.RefreshTokenExpiresIn,
 	}, nil
 }

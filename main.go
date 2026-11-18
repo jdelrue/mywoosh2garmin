@@ -1,7 +1,11 @@
+// MyWhoosh2Garmin is a GUI app that uploads MyWhoosh activities to Garmin Connect.
 package main
 
 import (
+	"cmp"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,10 +24,7 @@ import (
 	"mywhoosh2garmin/mywhoosh"
 )
 
-// ---------------------------------------------------------------------------
-// App config (persisted to ~/.mywhoosh2garmin/config.json)
-// ---------------------------------------------------------------------------
-
+// appConfig holds the user settings persisted to ~/.mywhoosh2garmin/config.json.
 type appConfig struct {
 	MyWhooshEmail string `json:"mywhoosh_email"`
 	GarminEmail   string `json:"garmin_email"`
@@ -32,31 +33,37 @@ type appConfig struct {
 	Serial uint32 `json:"serial,omitempty"`
 }
 
+// appConfigDir returns ~/.mywhoosh2garmin, where config, tokens and the synced list are stored.
 func appConfigDir() string {
 	home, _ := os.UserHomeDir()
+
 	return filepath.Join(home, ".mywhoosh2garmin")
 }
 
+// loadAppConfig reads config.json, returning defaults when it is missing or broken.
 func loadAppConfig() appConfig {
 	var cfg appConfig
 	data, err := os.ReadFile(filepath.Join(appConfigDir(), "config.json"))
 	if err == nil {
-		json.Unmarshal(data, &cfg)
+		_ = json.Unmarshal(data, &cfg) // a broken config falls back to defaults
 	}
+
 	return cfg
 }
 
+// saveAppConfig is best effort: losing the config only means re-entering it.
 func saveAppConfig(cfg appConfig) {
 	dir := appConfigDir()
-	os.MkdirAll(dir, 0o700)
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(filepath.Join(dir, "config.json"), data, 0o600)
+	_ = os.MkdirAll(dir, 0o700)
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "config.json"), data, 0o600)
 }
 
-// ---------------------------------------------------------------------------
-// Synced-activity tracker (persisted to ~/.mywhoosh2garmin/synced.json)
-// ---------------------------------------------------------------------------
-
+// syncedTracker remembers which MyWhoosh activities were uploaded to Garmin,
+// persisted to ~/.mywhoosh2garmin/synced.json.
 type syncedTracker struct {
 	mu       sync.Mutex
 	path     string
@@ -70,8 +77,9 @@ func newSyncedTracker(dir string) *syncedTracker {
 	}
 	data, err := os.ReadFile(st.path)
 	if err == nil {
-		json.Unmarshal(data, &st.uploaded)
+		_ = json.Unmarshal(data, &st.uploaded) // a broken file means nothing is marked synced
 	}
+
 	return st
 }
 
@@ -79,6 +87,7 @@ func (st *syncedTracker) IsSynced(activityID string) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	_, ok := st.uploaded[activityID]
+
 	return ok
 }
 
@@ -86,18 +95,23 @@ func (st *syncedTracker) MarkSynced(activityID string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.uploaded[activityID] = time.Now().Format(time.RFC3339)
-	data, _ := json.MarshalIndent(st.uploaded, "", "  ")
-	os.WriteFile(st.path, data, 0o600)
+	data, err := json.MarshalIndent(st.uploaded, "", "  ")
+	if err != nil {
+		return
+	}
+	// Best effort: if this fails, Garmin rejects the re-upload as a duplicate.
+	_ = os.WriteFile(st.path, data, 0o600)
 }
-
-// ---------------------------------------------------------------------------
-// GUI
-// ---------------------------------------------------------------------------
 
 func main() {
 	a := app.New()
 	w := a.NewWindow("MyWhoosh2Garmin")
 	w.Resize(fyne.NewSize(720, 700))
+
+	// Cancel in-flight MyWhoosh and Garmin requests when the window closes.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w.SetOnClosed(cancel)
 
 	cfg := loadAppConfig()
 	if cfg.Serial == 0 {
@@ -140,11 +154,7 @@ func main() {
 	logFn = func(format string, args ...any) {
 		appendLog(fmt.Sprintf(format, args...))
 	}
-
-	// Wire MyWhoosh debug logs into the GUI
-	mywhoosh.SetDebugFn(func(format string, args ...any) {
-		appendLog(fmt.Sprintf(format, args...))
-	})
+	mwClient.Logf = logFn
 
 	// --- MyWhoosh Credentials ---
 	mwEmailEntry := widget.NewEntry()
@@ -176,6 +186,7 @@ func main() {
 	selectedDevice := func() spoofDevice {
 		device := findSpoofDevice(deviceSelect.Selected)
 		device.Serial = cfg.Serial
+
 		return device
 	}
 
@@ -196,22 +207,24 @@ func main() {
 		tokenDir := appConfigDir()
 		client := garmin.NewClient(tokenDir)
 
-		if err := client.Resume(); err == nil {
+		if err := client.Resume(ctx); err == nil {
 			garminClient = client
+
 			return client, nil
 		}
 
 		email := garminEmailEntry.Text
 		password := garminPasswordEntry.Text
 		if email == "" || password == "" {
-			return nil, fmt.Errorf("enter Garmin email & password for first login")
+			return nil, errors.New("enter Garmin email & password for first login")
 		}
 
-		if err := client.Login(email, password); err != nil {
-			return nil, fmt.Errorf("Garmin login failed: %w", err)
+		if err := client.Login(ctx, email, password); err != nil {
+			return nil, fmt.Errorf("garmin login: %w", err)
 		}
 
 		garminClient = client
+
 		return client, nil
 	}
 
@@ -239,13 +252,11 @@ func main() {
 			appendLog(fmt.Sprintf("⬇ Downloading: %s (%s)…",
 				activity.DisplayName(), activity.FormattedDate()))
 
-			fileID := activity.ActivityFileID
-			if fileID == "" {
-				fileID = activity.ID
-			}
-			fitData, err := mwClient.DownloadFitFile(fileID)
+			fileID := cmp.Or(activity.ActivityFileID, activity.ID)
+			fitData, err := mwClient.DownloadFitFile(ctx, fileID)
 			if err != nil {
 				appendLog("  ❌ Download failed: " + err.Error())
+
 				return
 			}
 			appendLog(fmt.Sprintf("  ✓ Downloaded %d bytes", len(fitData)))
@@ -258,15 +269,19 @@ func main() {
 
 			if err := os.WriteFile(inputPath, fitData, 0o600); err != nil {
 				appendLog("  ❌ Save temp file failed: " + err.Error())
+
 				return
 			}
-			defer os.Remove(inputPath)
-			defer os.Remove(outputPath)
+			defer func() {
+				_ = os.Remove(inputPath)
+				_ = os.Remove(outputPath)
+			}()
 
 			// 3. Fix the FIT file
 			appendLog("  🔧 Fixing FIT file…")
 			if err := fixFitFile(inputPath, outputPath, device); err != nil {
 				appendLog("  ❌ Fix failed: " + err.Error())
+
 				return
 			}
 
@@ -274,6 +289,7 @@ func main() {
 			client, err := ensureGarmin()
 			if err != nil {
 				appendLog("  ❌ " + err.Error())
+
 				return
 			}
 			fyne.Do(func() {
@@ -282,13 +298,14 @@ func main() {
 
 			// 5. Upload to Garmin
 			appendLog("  ⬆ Uploading to Garmin Connect…")
-			if err := client.UploadFIT(outputPath); err != nil {
-				if strings.Contains(err.Error(), "duplicate") {
+			if err := client.UploadFIT(ctx, outputPath); err != nil {
+				if errors.Is(err, garmin.ErrDuplicate) {
 					appendLog("  ⚠ Already on Garmin (duplicate)")
 					tracker.MarkSynced(activity.ID)
 				} else {
 					appendLog("  ❌ Upload failed: " + err.Error())
 				}
+
 				return
 			}
 
@@ -374,12 +391,14 @@ func main() {
 				password := mwPasswordEntry.Text
 				if email == "" || password == "" {
 					appendLog("❌ Enter MyWhoosh email & password")
+
 					return
 				}
 
 				appendLog("Logging in to MyWhoosh…")
-				if err := mwClient.Login(email, password); err != nil {
+				if err := mwClient.Login(ctx, email, password); err != nil {
 					appendLog("❌ MyWhoosh login failed: " + err.Error())
+
 					return
 				}
 				appendLog("✓ Logged in to MyWhoosh")
@@ -390,19 +409,20 @@ func main() {
 
 			// 2. Fetch activities from last 10 days
 			appendLog("Fetching activities (last 10 days)…")
-			activities, err := mwClient.GetRecentActivities(10)
+			activities, err := mwClient.GetRecentActivities(ctx, 10)
 			if err != nil {
 				// Token may be expired — try fresh login
 				email := mwEmailEntry.Text
 				password := mwPasswordEntry.Text
 				if email != "" && password != "" {
 					appendLog("Session may be expired, retrying login…")
-					if loginErr := mwClient.Login(email, password); loginErr == nil {
-						activities, err = mwClient.GetRecentActivities(10)
+					if loginErr := mwClient.Login(ctx, email, password); loginErr == nil {
+						activities, err = mwClient.GetRecentActivities(ctx, 10)
 					}
 				}
 				if err != nil {
 					appendLog("❌ Failed to fetch activities: " + err.Error())
+
 					return
 				}
 			}
@@ -413,6 +433,7 @@ func main() {
 					activityListBox.RemoveAll()
 					activityListBox.Add(widget.NewLabel("No activities found in the last 10 days."))
 				})
+
 				return
 			}
 
@@ -485,16 +506,14 @@ func main() {
 
 				appendLog(fmt.Sprintf("\n[%d/%d] %s", i+1, len(currentActivities), act.DisplayName()))
 
-				fileID := act.ActivityFileID
-				if fileID == "" {
-					fileID = act.ID
-				}
+				fileID := cmp.Or(act.ActivityFileID, act.ID)
 
 				// Download
-				fitData, err := mwClient.DownloadFitFile(fileID)
+				fitData, err := mwClient.DownloadFitFile(ctx, fileID)
 				if err != nil {
 					appendLog("  ❌ Download failed: " + err.Error())
 					failed++
+
 					continue
 				}
 
@@ -507,14 +526,16 @@ func main() {
 				if err := os.WriteFile(inputPath, fitData, 0o600); err != nil {
 					appendLog("  ❌ Save failed: " + err.Error())
 					failed++
+
 					continue
 				}
 
 				// Fix
 				if err := fixFitFile(inputPath, outputPath, device); err != nil {
 					appendLog("  ❌ Fix failed: " + err.Error())
-					os.Remove(inputPath)
+					_ = os.Remove(inputPath)
 					failed++
+
 					continue
 				}
 
@@ -522,15 +543,16 @@ func main() {
 				client, err := ensureGarmin()
 				if err != nil {
 					appendLog("  ❌ " + err.Error())
-					os.Remove(inputPath)
-					os.Remove(outputPath)
+					_ = os.Remove(inputPath)
+					_ = os.Remove(outputPath)
 					failed++
+
 					continue
 				}
 
 				// Upload
-				if err := client.UploadFIT(outputPath); err != nil {
-					if strings.Contains(err.Error(), "duplicate") {
+				if err := client.UploadFIT(ctx, outputPath); err != nil {
+					if errors.Is(err, garmin.ErrDuplicate) {
 						appendLog("  ⚠ Already on Garmin (duplicate)")
 						tracker.MarkSynced(act.ID)
 						success++
@@ -544,8 +566,8 @@ func main() {
 					appendLog("  ✓ Uploaded")
 				}
 
-				os.Remove(inputPath)
-				os.Remove(outputPath)
+				_ = os.Remove(inputPath)
+				_ = os.Remove(outputPath)
 			}
 
 			appendLog(fmt.Sprintf("\n✓ Batch complete — %d uploaded, %d failed", success, failed))

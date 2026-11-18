@@ -1,8 +1,12 @@
+// Package garmin authenticates with Garmin Connect and uploads FIT activity files.
 package garmin
 
 import (
 	"bytes"
+	"cmp"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -13,6 +17,9 @@ import (
 )
 
 const apiUserAgent = "GCM-iOS-5.19.1.2"
+
+// ErrDuplicate is returned by UploadFIT when Garmin already has the activity.
+var ErrDuplicate = errors.New("duplicate activity (already uploaded to Garmin)")
 
 // Client manages authentication and uploads to Garmin Connect.
 type Client struct {
@@ -32,9 +39,9 @@ func NewClient(tokenDir string) *Client {
 
 // Resume tries to load cached tokens and refresh if needed.
 // Returns nil if a valid session was restored, error otherwise.
-func (c *Client) Resume() error {
+func (c *Client) Resume(ctx context.Context) error {
 	if c.TokenDir == "" {
-		return fmt.Errorf("no token directory configured")
+		return errors.New("no token directory configured")
 	}
 
 	oauth1, oauth2, err := LoadTokens(c.TokenDir)
@@ -44,9 +51,7 @@ func (c *Client) Resume() error {
 
 	c.OAuth1 = oauth1
 	c.OAuth2 = oauth2
-	if oauth1.Domain != "" {
-		c.Domain = oauth1.Domain
-	}
+	c.Domain = cmp.Or(oauth1.Domain, c.Domain)
 
 	// Token still valid
 	if !oauth2.Expired() {
@@ -55,15 +60,16 @@ func (c *Client) Resume() error {
 
 	// OAuth2 expired — try to refresh using OAuth1 (lasts ~1 year)
 	fmt.Println("  session expired, refreshing...")
-	if err := c.refreshOAuth2(); err != nil {
+	if err := c.refreshOAuth2(ctx); err != nil {
 		return fmt.Errorf("refresh failed: %w", err)
 	}
+
 	return nil
 }
 
 // Login performs a fresh SSO login with the given credentials.
-func (c *Client) Login(email, password string) error {
-	oauth1, oauth2, err := Login(email, password, c.Domain)
+func (c *Client) Login(ctx context.Context, email, password string) error {
+	oauth1, oauth2, err := Login(ctx, email, password, c.Domain)
 	if err != nil {
 		return err
 	}
@@ -77,25 +83,26 @@ func (c *Client) Login(email, password string) error {
 			fmt.Printf("  warning: could not cache tokens: %v\n", err)
 		}
 	}
+
 	return nil
 }
 
 // UploadFIT uploads a FIT file to Garmin Connect.
 // Automatically refreshes the OAuth2 token if expired.
-func (c *Client) UploadFIT(filePath string) error {
+func (c *Client) UploadFIT(ctx context.Context, filePath string) error {
 	if c.OAuth2 == nil {
-		return fmt.Errorf("not authenticated")
+		return errors.New("not authenticated")
 	}
 
 	// Auto-refresh if expired
 	if c.OAuth2.Expired() {
-		if err := c.refreshOAuth2(); err != nil {
+		if err := c.refreshOAuth2(ctx); err != nil {
 			return fmt.Errorf("token refresh: %w", err)
 		}
 	}
 
 	// First attempt
-	status, body, err := c.doUpload(filePath)
+	status, body, err := c.doUpload(ctx, filePath)
 	if err != nil {
 		return err
 	}
@@ -103,10 +110,10 @@ func (c *Client) UploadFIT(filePath string) error {
 	// Retry once on 401 (token might be stale despite not being expired)
 	if status == 401 {
 		fmt.Println("  token rejected, refreshing...")
-		if err := c.refreshOAuth2(); err != nil {
+		if err := c.refreshOAuth2(ctx); err != nil {
 			return fmt.Errorf("token refresh: %w", err)
 		}
-		status, body, err = c.doUpload(filePath)
+		status, body, err = c.doUpload(ctx, filePath)
 		if err != nil {
 			return err
 		}
@@ -116,8 +123,8 @@ func (c *Client) UploadFIT(filePath string) error {
 }
 
 // refreshOAuth2 exchanges the OAuth1 token for a fresh OAuth2 token.
-func (c *Client) refreshOAuth2() error {
-	oauth2, err := ExchangeForOAuth2(c.OAuth1)
+func (c *Client) refreshOAuth2(ctx context.Context) error {
+	oauth2, err := ExchangeForOAuth2(ctx, c.OAuth1)
 	if err != nil {
 		return err
 	}
@@ -127,11 +134,12 @@ func (c *Client) refreshOAuth2() error {
 	if c.TokenDir != "" {
 		_ = SaveTokens(c.TokenDir, nil, oauth2)
 	}
+
 	return nil
 }
 
 // doUpload performs the actual multipart upload and returns status + body.
-func (c *Client) doUpload(filePath string) (int, []byte, error) {
+func (c *Client) doUpload(ctx context.Context, filePath string) (int, []byte, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return 0, nil, err
@@ -148,18 +156,20 @@ func (c *Client) doUpload(filePath string) (int, []byte, error) {
 	if _, err := io.Copy(part, f); err != nil {
 		return 0, nil, err
 	}
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		return 0, nil, err
+	}
 
 	uploadURL := fmt.Sprintf("https://connectapi.%s/upload-service/upload", c.Domain)
-	req, err := http.NewRequest("POST", uploadURL, &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &buf)
 	if err != nil {
 		return 0, nil, err
 	}
 	req.Header.Set("Authorization", c.OAuth2.Bearer())
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("User-Agent", apiUserAgent)
-	req.Header.Set("DI-Backend", fmt.Sprintf("connectapi.%s", c.Domain))
-	req.Header.Set("NK", "NT")
+	req.Header.Set("Di-Backend", "connectapi."+c.Domain)
+	req.Header.Set("Nk", "NT")
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
@@ -178,8 +188,8 @@ func (c *Client) doUpload(filePath string) (int, []byte, error) {
 
 // parseUploadResult checks the upload response for errors.
 func parseUploadResult(status int, body []byte) error {
-	if status == 409 {
-		return fmt.Errorf("duplicate activity (already uploaded to Garmin)")
+	if status == http.StatusConflict {
+		return ErrDuplicate
 	}
 	if status >= 400 {
 		return fmt.Errorf("upload failed (HTTP %d): %s", status,

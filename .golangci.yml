@@ -1,0 +1,385 @@
+version: "2"
+run:
+  relative-path-mode: gomod
+  tests: true
+  allow-parallel-runners: true
+
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - dupl
+    - dupword
+    - durationcheck
+    - embeddedstructfieldcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exptostd
+    - fatcontext
+    - gocheckcompilerdirectives
+    - gocritic
+    - godoclint
+    - godot
+    - godox
+    - goheader
+    - gosec
+    - gosmopolitan
+    - govet
+    - grouper
+    - ineffassign
+    - intrange
+    - iotamixing
+    - lll
+    - makezero
+    - mirror
+    - misspell
+    - modernize
+    - musttag
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - nlreturn
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - perfsprint
+    - predeclared
+    - reassign
+    - recvcheck
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+  disable:
+    - cyclop
+    - decorder
+    - depguard
+    - dogsled
+    - err113
+    - exhaustive
+    - exhaustruct_v5
+    - forbidigo
+    - forcetypeassert
+    - funcorder
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocyclo
+    - gomoddirectives
+    - gomodguard_v2
+    - goprintffuncname
+    - iface
+    - inamedparam
+    - interfacebloat
+    - ireturn
+    - maintidx
+    - mnd
+    - nakedret
+    - nestif
+    - noinlineerr
+    - paralleltest
+    - prealloc
+    - promlinter
+    - tagalign
+    - tagliatelle
+    - testpackage
+    - thelper
+    - tparallel
+    - varnamelen
+    - wrapcheck
+    - wsl_v5
+  settings:
+    errcheck:
+      # Closing a file opened for reading or an HTTP response body can't lose data.
+      # Close errors on written files are checked in code.
+      exclude-functions:
+        - (*os.File).Close
+        - (io.Closer).Close
+    copyloopvar:
+      check-alias: true
+    embeddedstructfieldcheck:
+      empty-line: true
+      forbid-mutex: true
+    fatcontext:
+      check-function-literals: true
+      check-loops: true
+      check-struct-pointers: true
+    gocritic:
+      enable-all: true
+      disabled-checks:
+        - commentedOutCode
+        - importShadow
+        - octalLiteral
+        - paramTypeCombine
+        - unnamedResult
+        - whyNoLint
+      disabled-tags:
+        - performance
+    godoclint:
+      # Check doc comments that exist (format, starts with the name) without forcing them on every symbol.
+      default: basic
+    gosec:
+      excludes:
+        - G404
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
+      enable-all: true
+    iotamixing:
+      report-individual: true
+    ineffassign:
+      check-escaping-errors: true
+    misspell:
+      extra-words:
+        - typo: iff
+          correction: if
+        - typo: cancelation
+          correction: cancellation
+      ignore-rules:
+        - importas
+    perfsprint:
+      integer-format: true
+      int-conversion: true
+      error-format: true
+      err-error: true
+      errorf: true
+      string-format: true
+      sprintf1: true
+      strconcat: true
+      bool-format: true
+      hex-format: true
+      concat-loop: true
+      loop-other-ops: true
+    reassign:
+      patterns:
+        - .*
+    revive:
+      confidence: 0.6
+      enable-default-rules: true
+      rules:
+        - name: add-constant
+          disabled: true
+        - name: argument-limit
+        - name: atomic
+        - name: banned-characters
+        - name: bare-return
+        - name: blank-imports
+        - name: bool-literal-in-expr
+        - name: call-to-gc
+        - name: cognitive-complexity
+          disabled: true
+        - name: comment-spacings
+        - name: comments-density
+          disabled: true
+        - name: confusing-naming
+          disabled: true
+        - name: confusing-results
+        - name: constant-logical-expr
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: '*testing.T'
+        - name: context-keys-type
+        - name: cyclomatic
+          disabled: true
+        - name: datarace
+        - name: deep-exit
+        - name: defer
+        - name: dot-imports
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: empty-lines
+        - name: enforce-map-style
+        - name: enforce-repeated-arg-type-style
+        - name: enforce-slice-style
+        - name: enforce-switch-style
+        - name: epoch-naming
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+          disabled: true
+        - name: file-header
+          disabled: true
+        - name: file-length-limit
+          disabled: true
+        - name: filename-format
+          arguments:
+            # e.g. main_test.go
+            - ^[_a-z][_a-z0-9]*\.go$
+        - name: flag-parameter
+          disabled: true
+        - name: forbidden-call-in-wg-go
+        - name: function-length
+          disabled: true
+        - name: function-result-limit
+          disabled: true
+        - name: get-return
+        - name: identical-branches
+        - name: identical-ifelseif-branches
+        - name: identical-ifelseif-conditions
+        - name: identical-switch-branches
+        - name: identical-switch-conditions
+        - name: if-return
+        - name: import-alias-naming
+        - name: import-shadowing
+          disabled: true
+        - name: imports-blocklist
+          disabled: true
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: inefficient-map-lookup
+        - name: line-length-limit
+          disabled: true
+        - name: marshal-receiver
+        - name: max-control-nesting
+          disabled: true
+        - name: max-public-structs
+          disabled: true
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: multiline-if-init
+        - name: nested-structs
+          disabled: true
+        - name: optimize-operands-order
+        - name: package-comments
+          disabled: true
+        - name: package-directory-mismatch
+        - name: package-naming
+        - name: range
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: redundant-build-tag
+        - name: redundant-import-alias
+        - name: redundant-test-main-exit
+        - name: string-format
+        - name: string-of-int
+        - name: struct-tag
+          arguments:
+            - json,inline
+        - name: superfluous-else
+        - name: time-date
+        - name: time-equal
+        - name: time-naming
+        - name: unchecked-type-assertion
+          disabled: true
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unexported-return
+        - name: unhandled-error
+          disabled: true
+        - name: unnecessary-format
+          disabled: true
+        - name: unnecessary-if
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unsecure-url-scheme
+        - name: unused-parameter
+        - name: unused-receiver
+          disabled: true
+        - name: use-any
+          disabled: true
+        - name: use-errors-new
+        - name: use-fmt-print
+        - name: use-slices-concat
+        - name: use-slices-sort
+        - name: use-waitgroup-go
+        - name: useless-break
+        - name: useless-fallthrough
+        - name: var-declaration
+        - name: var-naming
+        - name: waitgroup-by-value
+    staticcheck:
+      checks:
+        - all
+        # Incorrect or missing package comment https://staticcheck.dev/docs/checks/#ST1000
+        - -ST1000
+    unparam:
+      check-exported: true
+    unused:
+      field-writes-are-uses: false
+      post-statements-are-reads: false
+      exported-fields-are-used: false
+      local-variables-are-used: false
+      generated-is-used: false
+      parameters-are-used: true
+    usestdlibvars:
+      http-method: true
+      http-status-code: true
+      time-weekday: true
+      time-month: true
+      time-layout: true
+      crypto-hash: true
+      default-rpc-path: true
+      sql-isolation-level: true
+      tls-signature-scheme: true
+      constant-kind: true
+      time-date-month: true
+    usetesting:
+      context-background: true
+      context-todo: true
+      os-chdir: true
+      os-mkdir-temp: true
+      os-setenv: true
+      os-temp-dir: true
+      os-create-temp: true
+  exclusions:
+    warn-unused: true
+    rules:
+      - linters:
+          - gosec
+        path: _test\.go$
+      # G115: averages of uint8/uint16 values can't overflow.
+      # G117: login tokens are cached on purpose in 0600 files.
+      # G304, G703: the app opens its own temp/config files and the inspect tool opens its argument.
+      - linters:
+          - gosec
+        # e.g. "G304: Potential file inclusion via variable"
+        text: "^G(115|117|304|703):"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+    gofumpt:
+      # The module path has no dot, so without this gofumpt treats local imports as std.
+      module-path: mywhoosh2garmin
+    golines:
+      max-len: 120
+  exclusions:
+    generated: lax

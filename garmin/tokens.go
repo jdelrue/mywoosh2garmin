@@ -43,7 +43,7 @@ func (t *OAuth2Token) RefreshExpired() bool {
 
 // Bearer returns the Authorization header value.
 func (t *OAuth2Token) Bearer() string {
-	return fmt.Sprintf("Bearer %s", t.AccessToken)
+	return "Bearer " + t.AccessToken
 }
 
 // SaveTokens saves OAuth1 and/or OAuth2 tokens to the given directory.
@@ -69,6 +69,7 @@ func SaveTokens(dir string, oauth1 *OAuth1Token, oauth2 *OAuth2Token) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
